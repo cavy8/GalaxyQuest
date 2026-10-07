@@ -73,6 +73,10 @@ struct EyeView {
     // under it; pointer[1]: nonzero while it points at menus instead, and
     // goes with the HUD.
     bool flatStereo = false;
+    // Mixed-reality diorama: leave the EFB background transparent and omit
+    // draws marked as sky, so the OpenXR passthrough layer can show through.
+    // Only meaningful for a VR eye (flatStereo == false).
+    bool mixedReality = false;
     float stereo[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float pointer[2] = {0.0f, 0.0f};
     // SpaceWarp: with a target here, draws between the player markers leave

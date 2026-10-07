@@ -303,22 +303,28 @@ In the diorama:
   Resolution) on the layer: the compositor scales it to the display once,
   instead of after a bilinear pass in the app. The virtual screen still
   fills the whole image.
-- Passthrough around the giant screen (`passthrough`, off by default):
-  Meta's `XR_FB_passthrough` (the manifest declares
-  `com.oculus.feature.PASSTHROUGH`, without which the runtime does not list
-  the extension). The feature and one reconstruction layer are made the
-  first time the setting asks for them, and paused while it does not. While
-  they run, the frame's first layer is the passthrough layer, and the eye
-  layer goes out with `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`:
-  around the screen the eye images are cleared to transparent black instead
-  of the dark (premultiplied alpha; the laser and the skip ring blend into
-  them as before), so the room shows there. The clear's alpha fades over
-  0.3 s when the setting changes. The diorama's eye images are opaque. In
-  the headless simulator a flat grey-green stands for the room. Measured
-  in the headset (unworn, Good Egg on the giant screen, SpaceWarp on): the
-  compositor's GPU time goes from 1.9 ms a refresh to 3.1-4.2 ms and the
-  GPU from 65% to 82% busy; the game still shows 592-599 of its 600 frames
-  in 10 s (597-600 without), with 6-22 refreshes missed instead of 0-6.
+- Passthrough (`XR_FB_passthrough`; the manifest declares
+  `com.oculus.feature.PASSTHROUGH`) is shared by two presentation modes.
+  `passthrough` (off by default) keeps the existing giant-screen behavior:
+  the passthrough layer is submitted under the projection layer and the area
+  around the screen fades from opaque dark to transparent black.
+  `mixed_reality` (off by default) does the same for gameplay diorama
+  frames: the EFB starts transparent, draws bracketed by the sky markers are
+  omitted (including the ordinary sky, the Observatory dome sky and the
+  sun), and the final eye composite preserves the EFB's alpha as
+  premultiplied projection-layer coverage. CAS only changes RGB; alpha is
+  sampled from the original eye target. Wipes, presentation fades and the
+  cutscene-skip dim deliberately drive coverage back toward opaque so a
+  comfort blink stays black instead of exposing the room. The mixed-reality
+  background itself switches atomically: crossfading virtual sky into the
+  room would require a separate sky coverage mask, whereas fading projection
+  alpha after omitting the sky would only fade black into passthrough. The
+  giant-screen fade remains independent, so switching from the diorama to a
+  virtual screen cannot leave that screen accidentally transparent. In the
+  headless simulator a flat grey-green stands for the room. Measured giant-screen
+  passthrough cost before this mode was added: compositor GPU time rose from
+  1.9 ms a refresh to 3.1-4.2 ms and GPU utilization from 65% to 82% busy;
+  mixed-reality diorama performance still needs headset measurement.
 - The HUD panel (with the pause menu and dialogs) and the VR settings panel
   go to the compositor as quad layers of their own (`XrCompositionLayerQuad`,
   premultiplied, sRGB; `vr::uiLayer`), as Meta recommends for text: sampled
@@ -393,7 +399,14 @@ In the diorama:
   are trapped in) see that eye's last view.
 - Skies are modelled around the game camera, which in the diorama is
   metres from your eyes; the game marks their draws and the renderer draws
-  them around the eye, at the far plane.
+  them around the eye, at the far plane. Mixed reality uses the same markers
+  as a background classification and skips those batches instead. The
+  Observatory dome sky and sun are marked too; Air remains part of the
+  virtual scene so atmospheric effects are retained.
+- The right grip is otherwise unused by the Wii mapping, so while the
+  diorama is shown it grabs the rig's room-space anchor. The controller's
+  translation is applied directly to that anchor until release; scale,
+  gravity alignment and yaw are unchanged. Left grip remains Wii C.
 - The game pauses whenever the headset session loses input focus (headset
   off, or the system menu open), and returning opens its pause menu.
 - Holding A skips cutscenes (`platform/src/port/cutscene_skip.cpp`).
