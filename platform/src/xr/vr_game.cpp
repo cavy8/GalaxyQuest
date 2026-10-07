@@ -45,6 +45,7 @@ const char* kBlitFs = R"(#version 320 es
 precision mediump float;
 uniform sampler2D uTex;
 uniform float uBrightness;
+uniform float uMixedReality;  // 0 = opaque VR, 1 = passthrough background
 uniform float uVignette;  // 0 = off .. 1 = strong
 uniform vec4 uWipe;       // closed (0..1), kind (0 fade, 1 ring), ring centre uv
 uniform vec4 uWipeColor;  // linear colour, w = width / height of the eye
@@ -57,16 +58,22 @@ void main() {
     float edge = smoothstep(0.35, 1.05, length(d));
     float v = 1.0 - uVignette * edge;
     vec3 c = toLinear(sourceColor()) * v;
+    float a = mix(1.0, texture(uTex, vUv).a, uMixedReality);
     if (uWipe.y < 0.5) {
         c = mix(c, uWipeColor.rgb, uWipe.x);
+        a = mix(a, 1.0, uWipe.x);
     } else {
         // A ring closing on its centre (radius in units of the eye's height;
         // 1.6 clears the view from any centre on it).
         float r = (1.0 - uWipe.x) * 1.6;
         float inside = 1.0 - smoothstep(r - 0.015, r, length((vUv - uWipe.zw) * vec2(uWipeColor.w, 1.0)));
         c = mix(uWipeColor.rgb, c, inside);
+        a = mix(1.0, a, inside);
     }
-    oColor = vec4(c * uBrightness, 1.0);
+    // Presentation fades and cutscene skipping deliberately fade to opaque
+    // black, rather than exposing the room through a comfort blink.
+    a = mix(a, 1.0, 1.0 - uBrightness);
+    oColor = vec4(c * uBrightness * a, a);
 }
 )";
 
@@ -333,7 +340,7 @@ GLint sLayerTex, sLayerMvp, sLayerUvScale;
 // Composite programs: plain, CAS at 1:1, CAS scaling.
 struct BlitProgram {
     GLuint program = 0;
-    GLint tex, brightness, vignette, wipe, wipeColor, casPeak, casScale;
+    GLint tex, brightness, mixedReality, vignette, wipe, wipeColor, casPeak, casScale;
 };
 enum { kBlitPlainProgram, kBlitCas1Program, kBlitCasScaledProgram };
 BlitProgram sBlit[3];
@@ -429,9 +436,11 @@ bool sInvertCamera = true;    // the right stick's turns swapped (invert_camera)
 // The room around the giant screen instead of the dark (passthrough): the
 // eye images are see-through where nothing is drawn, over the headset's
 // passthrough layer (xr_app.cpp).
-bool sPassthrough = false;       // the setting
+bool sPassthrough = false;       // giant-screen passthrough setting
+bool sMixedReality = false;      // passthrough behind the gameplay diorama
 bool sPassAvailable = false;     // the headset can show its passthrough
-float sPassAmount = 0.0f;        // how far the room is faded in, 0..1
+float sPassAmount = 0.0f;        // giant-screen room fade, 0..1
+float sMrAmount = 0.0f;          // diorama MR coverage mode, 0 or 1
 float sSwapchainScale = 0.0f;    // the eye swapchains' size, fixed when they are made
 float sRefreshRates[8];          // the display's refresh rates (xr_app.cpp)
 int sRefreshRateCount = 0;
@@ -593,6 +602,7 @@ BlitProgram linkBlit(const char* source) {
     b.program = link(kBlitVs, fs);
     b.tex = glGetUniformLocation(b.program, "uTex");
     b.brightness = glGetUniformLocation(b.program, "uBrightness");
+    b.mixedReality = glGetUniformLocation(b.program, "uMixedReality");
     b.vignette = glGetUniformLocation(b.program, "uVignette");
     b.wipe = glGetUniformLocation(b.program, "uWipe");
     b.wipeColor = glGetUniformLocation(b.program, "uWipeColor");
@@ -925,6 +935,7 @@ vr::Setting sSettings[] = {
     {"giant_screen", 0.0f, 1.0f, 0.0f, FLAG(sGiantScreen)},
     {"screen_distance", 1.0f, 20.0f, 0.0f, NUMBER(sScreenDistance)},
     {"passthrough", 0.0f, 1.0f, 0.0f, FLAG(sPassthrough)},
+    {"mixed_reality", 0.0f, 1.0f, 0.0f, FLAG(sMixedReality)},
     {"stereo_screen", 0.0f, 1.0f, 0.0f, FLAG(sStereoScreen)},
     {"stereo_depth", 0.25f, 3.0f, 0.0f, NUMBER(sStereoDepth)},
     {"stereo_far", 0.5f, 1.0f, 0.0f, NUMBER(sStereoFar)},
@@ -1019,8 +1030,8 @@ int refreshRates(float* rates, int max) {
     return n;
 }
 bool invertCamera() { return sInvertCamera; }
-bool passthroughWanted() { return sPassthrough && sGiantScreen; }
-float passthroughShown() { return sPassAmount; }
+bool passthroughWanted() { return (sPassthrough && sGiantScreen && !sShownVrMode) || (sMixedReality && sShownVrMode); }
+float passthroughShown() { return fmaxf(sPassAmount, sMrAmount); }
 bool passthroughAvailable() { return sPassAvailable; }
 void setPassthroughAvailable(bool available) { sPassAvailable = available; }
 bool highClocks() { return sHighClocks; }
@@ -1030,6 +1041,28 @@ bool snapTurn(int dir) {
     if (!sVrMode || !sRig.valid || sRigParams.turnWithCamera || dir == 0) return false;
     sRig.pendingTurn += (dir > 0 ? 1.0f : -1.0f) * 0.78539816f;
     port_log("vr: snap turn %s", dir > 0 ? "right" : "left");
+    return true;
+}
+
+bool grabDiorama(xm::Vec3 controller, bool held) {
+    static bool grabbing = false;
+    static xm::Vec3 startController{0, 0, 0};
+    static xm::Vec3 startAnchor{0, 0, 0};
+
+    if (!sVrMode || !held) {
+        if (grabbing) {
+            port_log("vr: diorama grab released at %.2f %.2f %.2f", sRigParams.anchor.x, sRigParams.anchor.y, sRigParams.anchor.z);
+        }
+        grabbing = false;
+        return false;
+    }
+    if (!grabbing) {
+        grabbing = true;
+        startController = controller;
+        startAnchor = sRigParams.anchor;
+        port_log("vr: diorama grab started");
+    }
+    sRigParams.anchor = startAnchor + (controller - startController);
     return true;
 }
 
@@ -1538,10 +1571,28 @@ void beginFrame(const FrameInfo& frame) {
     updateSkipIndicator(dt);
     sVrMode = sShownVrMode && r.hasFrame() && r.camera().valid;
     sDioramaShown.store(sVrMode ? 1 : 0);
-    // The room around the giant screen (passthrough) fades in and out with
-    // the setting; the diorama fills the view itself.
+    // Passthrough is shared by the giant-screen and mixed-reality modes, but
+    // their eye-image alpha state is separate so a cutscene/virtual screen
+    // does not inherit the diorama's transparency.
     float room = sPassthrough && sPassAvailable && sGiantScreen && !sShownVrMode ? 1.0f : 0.0f;
     sPassAmount = room > sPassAmount ? fminf(room, sPassAmount + dt / 0.3f) : fmaxf(room, sPassAmount - dt / 0.3f);
+    // The MR background switches atomically. A true crossfade between the
+    // virtual sky and passthrough would need a separate sky coverage mask;
+    // fading only projection alpha would otherwise pass through black while
+    // the sky batches are omitted. Arm it for one frame first: updateInput()
+    // can toggle the setting after xr_app has already updated the OpenXR
+    // passthrough lifetime for this refresh.
+    static bool mrArmed = false;
+    bool mrWanted = sMixedReality && sPassAvailable && sVrMode;
+    if (!mrWanted) {
+        mrArmed = false;
+        sMrAmount = 0.0f;
+    } else if (mrArmed) {
+        sMrAmount = 1.0f;
+    } else {
+        mrArmed = true;
+        sMrAmount = 0.0f;
+    }
     if (sVrMode) {
         bool wasValid = sRig.valid;
         xm::Vec3 prevPivot = sRig.pivot;
@@ -1648,6 +1699,7 @@ Extent renderEye(int eye, const FrameInfo& frame, GLuint fbo, int width, int hei
         }
         gpu::EyeView ev;
         ev.index = eye;
+        ev.mixedReality = sMrAmount > 0.001f;
         xm::Mat4 eyeFromView = ei.view * sStageFromView;
         toRowMajor(eyeFromView, ev.view);
         toRowMajor(ei.proj, ev.proj);
@@ -1687,6 +1739,7 @@ Extent renderEye(int eye, const FrameInfo& frame, GLuint fbo, int width, int hei
         glBindSampler(0, 0);
         glUniform1i(blit.tex, 0);
         glUniform1f(blit.brightness, (1.0f - sFade) * (1.0f - sSkipDim));
+        glUniform1f(blit.mixedReality, sMrAmount);
         glUniform1f(blit.vignette, sVignette);
         if (sSharpen) {
             glUniform1f(blit.casPeak, -1.0f / (8.0f + (5.0f - 8.0f) * sSharpness));

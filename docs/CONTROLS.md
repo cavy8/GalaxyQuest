@@ -16,6 +16,7 @@ controllers are mapped onto them like this. The mapping lives in
 | Right controller aim | Pointer | Collect star bits, grab Pull Stars, point at menus |
 | Left trigger | Z | Crouch, ground pound, long / backflip jumps (with A) |
 | Left grip | C | Put the camera behind Mario |
+| Right grip | — | Grab and move the diorama in room space while it is shown |
 | Menu (left) | + | Pause menu (one press) |
 | X | − | Pause menu (one press) |
 | Right stick left / right | D-pad left / right | In the diorama: turn it a step (45°) round Mario, behind a short blink. On the giant screen: turn the game camera around Mario in steps, where the level allows it. Pushing the stick right turns the view to the right; with *Invert camera* off (see the VR settings) it moves the camera to the right instead, as the Wii's D-pad did |
@@ -132,9 +133,12 @@ has no effect as things are (the 3D depth while the 3D is off) is dimmed.
   61 degrees at 4.5 m and 30 degrees (a TV seen from the couch) at 10 m.
 - **Passthrough** (off by default) shows your own room around the giant
   screen, through the headset's cameras, instead of the dark. It fades in
-  and out as you switch it. It only shows on the giant screen: the diorama
-  fills the whole view with the game's world. The headset draws the room on
-  every refresh, which takes some of the GPU's time.
+  and out as you switch it. The headset draws the room on every refresh,
+  which takes some of the GPU's time.
+- **Mixed reality** (off by default) applies passthrough to the diorama
+  instead: the game's sky and other marked background draws are omitted and
+  your real room shows behind the planets, scenery, actors and effects. It
+  takes effect while the giant screen is off.
 - **Stereoscopic 3D** (off by default) shows the giant screen's picture in
   3D: the game is drawn once for each eye, from its own camera moved a
   little to either side. The sky and distant scenery lie far behind the
@@ -174,6 +178,9 @@ has no effect as things are (the 3D depth while the 3D is off) is dimmed.
 - **Turn with the camera** (off by default): the world turns with the game
   camera as it swings round Mario, as early versions did; off, the world
   keeps its facing and the right stick turns it in steps.
+- Hold the **right grip** while the diorama is shown to grab it. Moving the
+  controller moves the whole diorama anchor in room space; release the grip
+  to leave it there. This does not rotate or resize the world.
 
 **Picture**
 
@@ -304,6 +311,9 @@ screen_distance = 4.5
 # 1 shows your room around the giant screen (the headset's passthrough)
 # instead of the dark; 0 is the default
 passthrough = 0
+# 1 shows the room behind the diorama, replacing its marked sky/background
+# draws; 0 is the default
+mixed_reality = 0
 # The giant screen in stereoscopic 3D (1; 0, the default, shows both eyes
 # the same picture). stereo_depth is how deep it looks (0.25 to 3, "3D
 # depth" on the VR settings panel): how far in front of the farthest things

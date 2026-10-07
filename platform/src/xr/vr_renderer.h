@@ -102,6 +102,8 @@ void init();
 //                     as the Wii's D-pad did
 //   passthrough       1 to see the room around the giant screen (the
 //                     headset's passthrough) instead of the dark; 0 (default)
+//   mixed_reality     1 to replace the diorama's sky/background with the
+//                     headset's passthrough; 0 (default)
 //   language          the game's language by name (english, french, german,
 //                     spanish, italian; japanese, korean), among those the
 //                     disc has: read when the game starts
@@ -131,13 +133,10 @@ int refreshRates(float* rates, int max);
 bool highClocks();
 // The right stick's camera turns swapped (invert_camera).
 bool invertCamera();
-// The room around the giant screen (the passthrough setting).  Wanted: the
-// setting is on and the giant screen with it, so the headset's passthrough
-// should run.  Shown: how far the eye images are see-through around the
-// screen just now, 0 .. 1 (it fades): while above 0, the frame loop puts the
-// passthrough layer under the eye layer and blends that one by its alpha.
-// Available: the headset has passthrough and it started (the frame loop
-// says); without it the dark stays.
+// Passthrough under the projection layer. Giant-screen passthrough makes the
+// space around the screen transparent; mixed_reality makes the diorama's
+// omitted background transparent. Wanted controls the OpenXR passthrough
+// lifetime, Shown keeps it alive while either mode fades out.
 bool passthroughWanted();
 float passthroughShown();
 bool passthroughAvailable();
@@ -151,6 +150,10 @@ bool superResolution();
 // press is the game's D-pad then) unless the diorama is shown with its own
 // yaw (not turn_with_camera).
 bool snapTurn(int dir);
+// Right-grip placement of the diorama. While held, the diorama anchor follows
+// the tracked right controller in stage space. Returns true while a grab is
+// active; false outside the diorama or after release.
+bool grabDiorama(xm::Vec3 controller, bool held);
 // The render scale now (the dynamic resolution moves it between the
 // min_resolution and resolution settings), and the scale of the screen's 3D
 // pictures (the giant screen's gameplay): 1 is the full picture, and the

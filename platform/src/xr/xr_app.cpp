@@ -161,9 +161,9 @@ struct App {
     PFN_xrPerfSettingsSetPerformanceLevelEXT xrPerfSettingsSetPerformanceLevelEXT = nullptr;
     float requestedHz = 0.0f;  // the refresh rate last asked for (the refresh_rate setting may change in play)
 
-    // The room around the giant screen (the passthrough setting): Meta's
-    // passthrough (XR_FB_passthrough) as a layer under the eye layer, made
-    // when the setting first asks for it and paused while it does not.
+    // The real room for giant-screen passthrough or mixed-reality diorama:
+    // Meta's passthrough (XR_FB_passthrough) as a layer under the eye layer,
+    // made when either presentation asks for it and paused while neither does.
     bool hasPassthrough = false;
     XrPassthroughFB passthrough = XR_NULL_HANDLE;
     XrPassthroughLayerFB passthroughLayer = XR_NULL_HANDLE;
@@ -826,8 +826,9 @@ void updateInput(App& a, XrTime time) {
     pad.stickY = move.y;
     // Button layout (see docs/CONTROLS.md):
     //   A = jump, right trigger = shoot star bits (B), B, Y or controller shake = spin,
-    //   left trigger = crouch (Z), left grip = camera centre (C), menu = pause (+),
-    //   X = minus, right stick = D-pad, right stick click = first-person look (D-pad up).
+    //   left trigger = crouch (Z), left grip = camera centre (C), right grip = move
+    //   the diorama, menu = pause (+), X = minus, right stick = D-pad, right
+    //   stick click = first-person look (D-pad up).
     if (getBool(a, a.aAction)) pad.buttons |= W_A;
     if (getFloat(a, a.triggerAction, a.handPath[1]) > 0.5f) pad.buttons |= W_B;
     if (getFloat(a, a.triggerAction, a.handPath[0]) > 0.5f) pad.buttons |= W_Z;
@@ -919,6 +920,10 @@ void updateInput(App& a, XrTime time) {
         aimDir = xm::rotate(aimQ, {0, 0, -1});
         pad.pointerValid = vr::pointerFromRay(aimFrom, aimDir, &pad.pointerX, &pad.pointerY);
     }
+    // Right squeeze is deliberately not mapped to a Wii button. While the
+    // diorama is on screen it grabs its room-space anchor directly.
+    float rightGrip = getFloat(a, a.gripAction, a.handPath[1]);
+    vr::grabDiorama(aimFrom, aimTracked && rightGrip > 0.6f);
     if (aimTracked != a.aimTracked) {
         // A controller that is asleep, set down or out of the cameras' view:
         // the laser goes (rather than freezing where it was) and the game's

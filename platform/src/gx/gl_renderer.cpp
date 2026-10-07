@@ -140,6 +140,7 @@ struct Item {
     GLenum prim;       // GL_TRIANGLES, GL_LINES or GL_POINTS
     u8 useVr, hud;
     u8 player;         // between the player markers (SpaceWarp stencil tag)
+    u8 sky;            // between the sky markers (omitted for mixed reality)
     u32 flags;
     u32 firstWord;     // first vertex, as a word offset into the frame's vertex data
     u32 endWord;       // end of the last merged draw's vertices
@@ -162,7 +163,7 @@ struct Item {
 };
 
 bool sameBatchState(const Item& a, const Item& b) {
-    if (a.uid != b.uid || a.prim != b.prim || a.useVr != b.useVr || a.hud != b.hud || a.player != b.player || a.flags != b.flags) return false;
+    if (a.uid != b.uid || a.prim != b.prim || a.useVr != b.useVr || a.hud != b.hud || a.player != b.player || a.sky != b.sky || a.flags != b.flags) return false;
     if (a.blend != b.blend || a.colorMask != b.colorMask || a.depthTest != b.depthTest || a.depthWrite != b.depthWrite || a.cull != b.cull ||
         a.dstAlpha != b.dstAlpha)
         return false;
@@ -1323,6 +1324,7 @@ void Builder::build(std::shared_ptr<const Frame> frame, Prepared& out) {
             it.flags = flags;
             it.hud = inHud;
             it.player = inPlayer;
+            it.sky = inSky;
             it.prim = glPrim;
             // Viewport (native EFB coordinates, top-left origin).
             float sx = bitsToFloat(xfRegs[0x1A]), sy = bitsToFloat(xfRegs[0x1B]);
@@ -1767,6 +1769,7 @@ void Renderer::Impl::execute(EfbTarget& efb, const EyeView* eye, EfbTarget* hud,
     memset(&eb, 0, sizeof(eb));
     // A VR eye, as opposed to a flat replay or one of its stereo pair.
     bool vrEye = eye && !eye->flatStereo;
+    bool mixedReality = vrEye && eye->mixedReality;
     if (vrEye) {
         for (int i = 0; i < 16; i++) {
             eb.vrView[i / 4][i % 4] = eye->view[i];
@@ -1828,7 +1831,7 @@ void Renderer::Impl::execute(EfbTarget& efb, const EyeView* eye, EfbTarget* hud,
         glClearStencil(0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     };
-    clearTarget(efb, false);
+    clearTarget(efb, mixedReality);
     if (hudMode == HudMode::Target) {
         clearTarget(*hud, true);
     }
@@ -2003,6 +2006,12 @@ void Renderer::Impl::execute(EfbTarget& efb, const EyeView* eye, EfbTarget* hud,
             continue;
         }
         if (inHudSection && hudMode == HudMode::Skip) {
+            continue;
+        }
+        // The game's sky is an enclosing shell around its camera. In mixed
+        // reality the real room replaces it; keeping the marker at the draw
+        // level means copies and the rest of the replay still run normally.
+        if (mixedReality && it.type == IT_DRAW && it.sky) {
             continue;
         }
         bool toHudTarget = inHudSection && hudMode == HudMode::Target;
